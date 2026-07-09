@@ -331,7 +331,7 @@ extension JNISwift2JavaGenerator {
       genericRequirements: [SwiftGenericRequirement],
     ) throws -> [TranslatedParameter] {
       try parameters.enumerated().map { idx, param in
-        let parameterName = param.name ?? "arg\(idx)"
+        let parameterName = (param.name?.unescapedSwiftName ?? "arg\(idx)").javaEscapedIfKeyword
         return try translateParameter(
           swiftType: param.type,
           parameterName: parameterName,

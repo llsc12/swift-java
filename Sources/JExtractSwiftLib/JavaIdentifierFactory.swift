@@ -112,3 +112,15 @@ package struct JavaIdentifierFactory {
     "true", "false", "null",
   ]
 }
+
+extension String {
+  /// Appends `_`, Java's conventional keyword-collision suffix (matching
+  /// `JavaIdentifierFactory.makeJavaMethodName`'s handling of method/property
+  /// names), if this string is one of Java's reserved words. Meant for
+  /// identifiers Java itself has no escaping syntax for - e.g. a parameter
+  /// named `new` or `else`, which are perfectly legal Swift identifiers but
+  /// can't be used bare as a Java parameter name.
+  package var javaEscapedIfKeyword: String {
+    JavaIdentifierFactory.javaKeywords.contains(self) ? "\(self)_" : self
+  }
+}
