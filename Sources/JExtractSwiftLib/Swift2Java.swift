@@ -119,7 +119,20 @@ public struct SwiftToJava {
       translator.sourceDependencies.loadSwiftSources(from: config, log: translator.log)
     }
 
-    try translator.analyze()
+    try translator.analyze { analyzer in
+      for (outputName, entry) in config.specialize ?? [:] {
+        guard
+          analyzer.registerSpecialization(
+            baseQualifiedName: entry.base,
+            outputName: outputName,
+            typeArgs: entry.typeArgs
+          ) != nil
+        else {
+          log.warning("Failed to register configured specialization '\(outputName)' of '\(entry.base)'")
+          continue
+        }
+      }
+    }
 
     switch config.effectiveMode {
     case .ffm:
