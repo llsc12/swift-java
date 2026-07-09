@@ -128,6 +128,7 @@ struct JNIEnumTests {
               case .first: return 0
               case .second: return 1
               case .third: return 2
+              default: return -1
             }
           }
         }
