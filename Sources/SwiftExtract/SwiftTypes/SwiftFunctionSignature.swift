@@ -164,15 +164,17 @@ extension SwiftFunctionSignature {
     // If this is a member of a type, so we will have a self parameter. Figure out the
     // type and convention for the self parameter.
     let selfParameter: SwiftSelfParameter?
+    var isStatic = false
+    var isNonisolated = false
     if let enclosingType {
       var isMutating = false
       var isConsuming = false
-      var isStatic = false
       for modifier in node.modifiers {
         switch modifier.name.tokenKind {
         case .keyword(.mutating): isMutating = true
         case .keyword(.static): isStatic = true
         case .keyword(.consuming): isConsuming = true
+        case .keyword(.nonisolated): isNonisolated = true
         case .keyword(.class): throw SwiftFunctionTranslationError.classMethod(modifier.name)
         default: break
         }
@@ -191,10 +193,26 @@ extension SwiftFunctionSignature {
     }
 
     // Translate the parameters.
-    let (parameters, effectSpecifiers) = try Self.translateFunctionSignature(
+    var (parameters, effectSpecifiers) = try Self.translateFunctionSignature(
       node.signature,
       lookupContext: lookupContext
     )
+
+    // A call into a non-static, non-`nonisolated` method of an `actor` always
+    // has to cross actor isolation, and thus is only reachable with `await`,
+    // regardless of whether the declaration itself is spelled `async` - the
+    // `async` keyword on the declaration only reflects work the function
+    // itself awaits internally, not whether calling it from outside the
+    // actor is synchronous. Treat such methods as `async` for extraction
+    // purposes so the generated JNI thunk uses the Task-based downcall
+    // instead of a plain (and illegal) synchronous call.
+    if case .nominal(let nominalType) = enclosingType,
+      nominalType.nominalTypeDecl.kind == .actor,
+      !isStatic, !isNonisolated,
+      !effectSpecifiers.contains(.async)
+    {
+      effectSpecifiers.append(.async)
+    }
 
     // Translate the result type.
     let result: SwiftResult
