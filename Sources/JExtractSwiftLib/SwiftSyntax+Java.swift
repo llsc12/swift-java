@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import SwiftExtract
 import SwiftSyntax
 
@@ -52,6 +53,21 @@ extension AttributeListSyntax.Element {
     guard case let .attribute(attr) = self else { return false }
     guard let attrName = attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text else { return false }
     return attrName == "JavaExport"
+  }
+
+  /// Whether this is `@available(*, unavailable, ...)` — unconditionally
+  /// unavailable on every platform, as opposed to a platform-specific
+  /// `@available(iOS, unavailable)` (which leaves the declaration usable on
+  /// other platforms and shouldn't be skipped here).
+  package var isUnconditionallyUnavailable: Bool {
+    guard case let .attribute(attr) = self,
+      attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text == "available"
+    else { return false }
+    let components =
+      attr.arguments?.trimmedDescription
+      .split(separator: ",")
+      .map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+    return components.contains("*") && components.contains("unavailable")
   }
 }
 

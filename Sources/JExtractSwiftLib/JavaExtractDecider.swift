@@ -38,6 +38,9 @@ public func makeSwiftJavaAnalyzer(config: Configuration) -> SwiftAnalyzer {
 ///   `@JavaImplementation`) since those are bridged the other way
 /// - Skips Swift operators (`+`, `-`, prefix/postfix forms) — Java has no
 ///   operator-overload syntax, so the generator can't render them
+/// - Skips decls marked `@available(*, unavailable, ...)` — generating a
+///   call to one would fail to compile, since Swift forbids calling an
+///   unconditionally unavailable declaration
 public struct JavaExtractDecider: ExtractDecider {
   public let accessLevel: AccessLevelMode
   let log: Logger
@@ -68,6 +71,10 @@ public struct JavaExtractDecider: ExtractDecider {
     }
     if attrs?.contains(where: { $0.isJavaKitMacro }) == true {
       log.trace("Skip '\(decl.qualifiedNameForDebug)': swift-java macro-wrapped Java type")
+      return false
+    }
+    if attrs?.contains(where: { $0.isUnconditionallyUnavailable }) == true {
+      log.trace("Skip '\(decl.qualifiedNameForDebug)': unconditionally unavailable")
       return false
     }
 

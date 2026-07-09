@@ -883,6 +883,20 @@ extension JNISwift2JavaGenerator {
       signature: jniSignature,
     )
 
+    // Two Swift overloads can produce the identical JNI symbol once their
+    // parameter types are erased to the same JNI representation — most
+    // commonly, several overloads differing only by a phantom-typed generic
+    // parameter (e.g. `Snowflake<Tag>` for different `Tag`s) that Java can't
+    // distinguish either way, since it has no equivalent to that generic. A
+    // second `@_cdecl` with the same name is a hard "invalid redeclaration"
+    // compile error, so drop the duplicate rather than emit it.
+    guard !self.generatedCDeclSymbolNames.contains(cName) else {
+      self.logger.warning(
+        "Skipping '\(parentName).\(javaMethodName)': generates duplicate JNI symbol '\(cName)' (overload not distinguishable once parameter types are erased for Java)"
+      )
+      return
+    }
+
     self.generatedCDeclSymbolNames.append(cName)
 
     let translatedParameters = parameters.map {
