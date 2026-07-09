@@ -413,7 +413,7 @@ extension JNISwift2JavaGenerator {
       printer.printBraceBlock("public var _rawDiscriminator: Int32") { printer in
         printer.printBraceBlock("switch self") { printer in
           for (idx, enumCase) in type.cases.enumerated() {
-            printer.print("case .\(enumCase.name): return \(idx)")
+            printer.print("case .\(enumCase.name.escapedAsSwiftBindingName): return \(idx)")
           }
           // `type.cases` only contains cases whose payload could be fully
           // resolved (e.g. cases with a payload type that was intentionally
@@ -462,7 +462,7 @@ extension JNISwift2JavaGenerator {
           let params = enumCase.original.parameters.enumerated().map { i, param in
             (param.name ?? "_\(i)").escapedAsSwiftBindingName
           }.joined(separator: .comma)
-          printer.printIfBlock("case let .\(enumCase.original.name)(\(params)) = self") { printer in
+          printer.printIfBlock("case let .\(enumCase.original.name.escapedAsSwiftBindingName)(\(params)) = self") { printer in
             printer.print("return (\(params))")
           }
           printer.print("return nil")
@@ -700,7 +700,21 @@ extension JNISwift2JavaGenerator {
     // Build the result
     let result: String
     switch decl.apiKind {
-    case .function, .initializer:
+    case .function:
+      let downcallArguments = zip(
+        decl.functionSignature.parameters,
+        arguments,
+      ).map { originalParam, argument in
+        let label = originalParam.argumentLabel.map { "\($0): " } ?? ""
+        return "\(label)\(argument)"
+      }
+      .joined(separator: .comma)
+      result = "\(tryClause)\(callee).\(decl.name.escapedAsSwiftBindingName)(\(downcallArguments))"
+
+    case .initializer:
+      // `decl.name` is always literally "init" here - this is a real call to
+      // the type's initializer via `.init(...)` sugar, not a reference to a
+      // member that happens to be named "init", so it must stay unescaped.
       let downcallArguments = zip(
         decl.functionSignature.parameters,
         arguments,
@@ -721,17 +735,21 @@ extension JNISwift2JavaGenerator {
       }
 
       let associatedValues = !downcallArguments.isEmpty ? "(\(downcallArguments.joined(separator: .comma)))" : ""
-      result = "\(callee).\(decl.name)\(associatedValues)"
+      // An enum case named "init" would otherwise print as the bare `.init`
+      // syntax, which Swift always special-cases as an initializer call
+      // regardless of a same-named case existing - not the case reference
+      // this is meant to construct.
+      result = "\(callee).\(decl.name.escapedAsSwiftBindingName)\(associatedValues)"
 
     case .getter:
-      result = "\(tryClause)\(callee).\(decl.name)"
+      result = "\(tryClause)\(callee).\(decl.name.escapedAsSwiftBindingName)"
 
     case .setter:
       guard let newValueArgument = arguments.first else {
         fatalError("Setter did not contain newValue parameter: \(decl)")
       }
 
-      result = "\(callee).\(decl.name) = \(newValueArgument)"
+      result = "\(callee).\(decl.name.escapedAsSwiftBindingName) = \(newValueArgument)"
     case .subscriptGetter:
       let parameters = zip(
         decl.functionSignature.parameters,
@@ -983,21 +1001,25 @@ extension JNISwift2JavaGenerator {
       }
     let parentProtocol = isEffectivelyGeneric ? "JextractedGenericTypeBridge" : "JextractedTypeBridge"
 
+    // `public` since other targets that depend on this module and use this
+    // type as a collection element (`Set<T>`, `Array<T>`, ...) reference this
+    // bridge by name from their own generated file - it's not only used
+    // within the module that declares the bridged type.
     let bridgeDeclaration =
       if let bridgeWhereClause {
-        "struct \(bridgeName)\(bridgeGenericClause): \(parentProtocol) \(bridgeWhereClause)"
+        "public struct \(bridgeName)\(bridgeGenericClause): \(parentProtocol) \(bridgeWhereClause)"
       } else {
-        "struct \(bridgeName)\(bridgeGenericClause): \(parentProtocol)"
+        "public struct \(bridgeName)\(bridgeGenericClause): \(parentProtocol)"
       }
 
     printer.printBraceBlock(bridgeDeclaration) { printer in
-      printer.print("typealias SwiftType = \(bridgedSwiftType)")
+      printer.print("public typealias SwiftType = \(bridgedSwiftType)")
       printer.println()
-      printer.printBraceBlock("static var javaClass: jclass") { printer in
+      printer.printBraceBlock("public static var javaClass: jclass") { printer in
         printer.print("\(cacheName).javaClass")
       }
       printer.println()
-      printer.printBraceBlock("static var wrapMemoryAddressUnsafe: jmethodID") { printer in
+      printer.printBraceBlock("public static var wrapMemoryAddressUnsafe: jmethodID") { printer in
         printer.print("\(cacheName).wrapMemoryAddressUnsafe")
       }
     }
