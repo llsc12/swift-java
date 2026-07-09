@@ -415,6 +415,13 @@ extension JNISwift2JavaGenerator {
           for (idx, enumCase) in type.cases.enumerated() {
             printer.print("case .\(enumCase.name): return \(idx)")
           }
+          // `type.cases` only contains cases whose payload could be fully
+          // resolved (e.g. cases with a payload type that was intentionally
+          // excluded from extraction are dropped, with a warning, in
+          // SwiftAnalysisVisitor.visit(enumCaseDecl:in:)). Without this
+          // fallback, any such gap makes this switch non-exhaustive and the
+          // generated file fails to compile.
+          printer.print("default: return -1")
         }
       }
     }
