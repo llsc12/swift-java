@@ -212,6 +212,20 @@ public class SwiftTypeLookupContext {
         return
           (try typeDeclaration(for: parentDecl, sourceFilePath: "FIXME_NO_SOURCE_FILE.swift")
           as! SwiftNominalTypeDeclaration) // FIXME: need to get the source file of the parent
+      case .extensionDecl(let extensionNode):
+        // A type nested inside `extension Outer { ... }` has `Outer` as its
+        // true parent, same as if it had been nested directly in `Outer`'s
+        // own body. Falling through to `default` here would skip past the
+        // extension and keep climbing, losing the parent entirely (or
+        // attaching to whatever unrelated scope happens to enclose the
+        // extension), which is exactly what makes bare references to a
+        // sibling nested type (e.g. two different nested `Kind` enums)
+        // resolve to the wrong declaration.
+        if let extendedNominal = extendedNominal(of: extensionNode) {
+          return extendedNominal
+        }
+        node = parentDecl
+        continue
       default:
         node = parentDecl
         continue
