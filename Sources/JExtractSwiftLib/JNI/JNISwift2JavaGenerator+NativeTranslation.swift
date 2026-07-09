@@ -1437,19 +1437,19 @@ extension JNISwift2JavaGenerator {
 
       case .getJNIValue(let inner):
         let inner = inner.render(&printer, placeholder)
-        return "\(inner).getJNIValue(in: environment)"
+        return "\(inner.escapedAsSwiftReference).getJNIValue(in: environment)"
 
       case .getJNILocalRefValue(let inner):
         let inner = inner.render(&printer, placeholder)
-        return "\(inner).getJNILocalRefValue(in: environment)"
+        return "\(inner.escapedAsSwiftReference).getJNILocalRefValue(in: environment)"
 
       case .getJValue(let inner):
         let inner = inner.render(&printer, placeholder)
-        return "\(inner).getJValue(in: environment)"
+        return "\(inner.escapedAsSwiftReference).getJValue(in: environment)"
 
       case .initFromJNI(let inner, let swiftType):
         let inner = inner.render(&printer, placeholder)
-        return "\(swiftType)(fromJNI: \(inner), in: environment)"
+        return "\(swiftType)(fromJNI: \(inner.escapedAsSwiftReference), in: environment)"
 
       case .interfaceToSwiftObject(
         let inner,
@@ -1505,7 +1505,9 @@ extension JNISwift2JavaGenerator {
 
       case .extractSwiftProtocolValue(let inner, let typeMetadataVariableName, let protocolTypes):
         let inner = inner.render(&printer, placeholder)
+        let innerRef = inner.escapedAsSwiftReference
         let typeMetadataVariableName = typeMetadataVariableName.render(&printer, placeholder)
+        let typeMetadataVariableNameRef = typeMetadataVariableName.escapedAsSwiftReference
         let existentialName = "\(inner)Existential$"
 
         let existentialType = SwiftKitPrinting.renderExistentialType(protocolTypes)
@@ -1513,11 +1515,11 @@ extension JNISwift2JavaGenerator {
         // TODO: Remove the _openExistential when we decide to only support language mode v6+
         printer.print(
           """
-          guard let \(inner)TypeMetadataPointer$ = UnsafeRawPointer(bitPattern: Int(Int64(fromJNI: \(typeMetadataVariableName), in: environment))) else {
+          guard let \(inner)TypeMetadataPointer$ = UnsafeRawPointer(bitPattern: Int(Int64(fromJNI: \(typeMetadataVariableNameRef), in: environment))) else {
             fatalError("\(typeMetadataVariableName) memory address was null")
           }
           let \(inner)DynamicType$: Any.Type = unsafeBitCast(\(inner)TypeMetadataPointer$, to: Any.Type.self)
-          guard let \(inner)RawPointer$ = UnsafeMutableRawPointer(bitPattern: Int(Int64(fromJNI: \(inner), in: environment))) else {
+          guard let \(inner)RawPointer$ = UnsafeMutableRawPointer(bitPattern: Int(Int64(fromJNI: \(innerRef), in: environment))) else {
             fatalError("\(inner) memory address was null")
           }
           #if hasFeature(ImplicitOpenExistentials)
@@ -1534,14 +1536,15 @@ extension JNISwift2JavaGenerator {
 
       case .extractSwiftValue(let inner, let swiftType, let allowNil, let convertLongFromJNI):
         let inner = inner.render(&printer, placeholder)
+        let innerRef = inner.escapedAsSwiftReference
         let pointerName = "\(inner)$"
         if !allowNil {
-          printer.print(#"assert(\#(inner) != 0, "\#(inner) memory address was null")"#)
+          printer.print(#"assert(\#(innerRef) != 0, "\#(inner) memory address was null")"#)
         }
         if convertLongFromJNI {
-          printer.print("let \(inner)Bits$ = Int(Int64(fromJNI: \(inner), in: environment))")
+          printer.print("let \(inner)Bits$ = Int(Int64(fromJNI: \(innerRef), in: environment))")
         } else {
-          printer.print("let \(inner)Bits$ = Int(\(inner))")
+          printer.print("let \(inner)Bits$ = Int(\(innerRef))")
         }
         printer.print("let \(pointerName) = UnsafeMutablePointer<\(swiftType)>(bitPattern: \(inner)Bits$)")
         if !allowNil {
@@ -1557,10 +1560,11 @@ extension JNISwift2JavaGenerator {
 
       case .extractMetatypeValue(let inner):
         let inner = inner.render(&printer, placeholder)
+        let innerRef = inner.escapedAsSwiftReference
         let pointerName = "\(inner)$"
         printer.print(
           """
-          let \(inner)Bits$ = Int(Int64(fromJNI: \(inner), in: environment))
+          let \(inner)Bits$ = Int(Int64(fromJNI: \(innerRef), in: environment))
           guard let \(pointerName) = UnsafeRawPointer(bitPattern: \(inner)Bits$) else {
             fatalError("\(inner) metadata address was null")
           }
@@ -1898,14 +1902,30 @@ extension JNISwift2JavaGenerator {
           """
         )
 
+        // `selfTypeParameter` is only present for an existential `self`
+        // (`any P`): its pointer is unwrapped via raw-pointer + type-metadata
+        // loading further up (into `selfPointerExistential$`, captured by the
+        // task body directly), so there is no `$`-suffixed pointer local for
+        // either `self` or its type-metadata parameter at this point in the
+        // function — only the raw JNI parameter exists to capture.
+        //
+        // For a concrete `self`, there's no such existential unwrap: the
+        // `$`-suffixed pointer (e.g. `selfPointer$`) was already produced by
+        // a simple `UnsafeMutablePointer<Concrete>(bitPattern:)` conversion
+        // earlier in this same function, and printTaskBody's Task closure
+        // uses that captured pointer directly (e.g. `selfPointer$.pointee`)
+        // - so it's that pointer, not the raw JNI parameter, that needs to
+        // cross into the Task.
+        let isExistentialSelf = nativeFunctionSignature.selfTypeParameter != nil
         if let selfParameter = nativeFunctionSignature.selfParameter {
           for parameter in selfParameter.parameters {
-            printer.print("nonisolated(unsafe) let \(parameter.name)Sendable$ = \(parameter.name)$")
+            let captured = isExistentialSelf ? parameter.name : "\(parameter.name)$"
+            printer.print("nonisolated(unsafe) let \(parameter.name)Sendable$ = \(captured)")
           }
         }
         if let selfTypeParameter = nativeFunctionSignature.selfTypeParameter {
           for parameter in selfTypeParameter.parameters {
-            printer.print("nonisolated(unsafe) let \(parameter.name)Sendable$ = \(parameter.name)$")
+            printer.print("nonisolated(unsafe) let \(parameter.name)Sendable$ = \(parameter.name)")
           }
         }
 
@@ -1940,6 +1960,13 @@ extension JNISwift2JavaGenerator {
                 "let boxedResult$ = SwiftJavaRuntimeSupport._JNIBoxedConversions.box(\(inner), in: environment)"
               )
               result = "boxedResult$"
+            } else if inner.isEmpty {
+              // `.genericValueIndirectReturn`/`.existentialValueIndirectReturn`
+              // conversions return "" by design: the result was already fully
+              // written into the out-parameter (`resultOut`) via SetLongField
+              // above, so there's no separate Swift value expression left to
+              // pass here — same as the void case.
+              result = "nil"
             } else {
               result = inner
             }
