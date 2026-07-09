@@ -97,7 +97,7 @@ extension JNISwift2JavaGenerator {
       let methodName = "" // TODO: Used for closures, replace with better name?
 
       let parameterResults = try enumCase.parameters.enumerated().map { idx, parameter in
-        let resultName = parameter.name ?? "arg\(idx)"
+        let resultName = (parameter.name?.unescapedSwiftName ?? "arg\(idx)").javaEscapedIfKeyword
         let translatedResult = try self.translateResult(
           swiftType: parameter.type,
           methodName: methodName,
