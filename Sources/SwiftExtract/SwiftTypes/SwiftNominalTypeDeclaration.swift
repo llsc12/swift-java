@@ -211,6 +211,34 @@ public class SwiftNominalTypeDeclaration: SwiftTypeDeclaration {
   public var isGeneric: Bool {
     !genericParameters.isEmpty
   }
+
+  /// Whether this declaration wraps a Java class/interface for use from Swift
+  /// (`@JavaClass`, `@JavaInterface`, …) — the Java-to-Swift binding
+  /// direction, as opposed to jextract's Swift-to-Java direction.
+  ///
+  /// Consulted when resolving a bare, unqualified type name against imported
+  /// modules: a JavaKit wrapper type happening to share a name with an
+  /// unrelated type in another imported module (e.g. a `ByteBuffer` wrapping
+  /// `java.nio.ByteBuffer` vs. swift-nio's own `ByteBuffer`) must never win
+  /// that resolution merely because of module search order — it represents a
+  /// completely different type, existing for the opposite binding direction.
+  public var isJavaKitWrapper: Bool {
+    let knownJavaKitMacroNames: Set<String> = [
+      "JavaClass",
+      "JavaInterface",
+      "JavaField",
+      "JavaStaticField",
+      "JavaMethod",
+      "JavaStaticMethod",
+      "JavaImplementation",
+    ]
+    return syntax.attributes.contains { element in
+      guard case .attribute(let attr) = element,
+        let attrName = attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text
+      else { return false }
+      return knownJavaKitMacroNames.contains(attrName)
+    }
+  }
 }
 
 extension SwiftNominalTypeDeclaration: CustomStringConvertible {

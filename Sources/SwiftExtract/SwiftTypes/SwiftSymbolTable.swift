@@ -215,8 +215,15 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       return parsedResult
     }
 
+    // A JavaKit wrapper type (`@JavaClass`, …) exists for the Java-to-Swift
+    // binding direction. It happening to share a name with an unrelated type
+    // in some other imported module — one that jextract typically can't see
+    // the real declaration for at all, e.g. a binary/precompiled dependency
+    // like NIOCore, since there's no source to walk — must not let it win an
+    // unqualified lookup during jextract's Swift-to-Java analysis. Treat it
+    // as unresolved rather than silently substituting the wrong type.
     for importedModule in prioritySortedImportedModules {
-      if let result = importedModule.lookupTopLevelNominalType(name) {
+      if let result = importedModule.lookupTopLevelNominalType(name), !result.isJavaKitWrapper {
         return result
       }
     }
@@ -253,8 +260,9 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       return parsedResult
     }
 
+    // See the comment in lookupTopLevelNominalType(_:) about JavaKit wrappers.
     for importedModule in importedModules.values {
-      if let result = importedModule.lookupNestedType(name, parent: parent) {
+      if let result = importedModule.lookupNestedType(name, parent: parent), !result.isJavaKitWrapper {
         return result
       }
     }
