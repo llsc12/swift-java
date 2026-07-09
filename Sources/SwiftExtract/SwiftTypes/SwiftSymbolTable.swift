@@ -220,15 +220,26 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
     // in some other imported module — one that jextract typically can't see
     // the real declaration for at all, e.g. a binary/precompiled dependency
     // like NIOCore, since there's no source to walk — must not let it win an
-    // unqualified lookup during jextract's Swift-to-Java analysis. Treat it
-    // as unresolved rather than silently substituting the wrong type.
+    // unqualified lookup during jextract's Swift-to-Java analysis over a real
+    // competing declaration. But a JavaKit wrapper referenced directly, with
+    // no competing type anywhere else, is legitimate (that's the whole point
+    // of JavaKit wrappers) - so it's only skipped in favor of a better match,
+    // never dropped outright when it's the only candidate.
+    var wrapperFallback: SwiftNominalTypeDeclaration?
     for importedModule in prioritySortedImportedModules {
-      if let result = importedModule.lookupTopLevelNominalType(name), !result.isJavaKitWrapper {
-        return result
+      guard let result = importedModule.lookupTopLevelNominalType(name) else {
+        continue
       }
+      if result.isJavaKitWrapper {
+        if wrapperFallback == nil {
+          wrapperFallback = result
+        }
+        continue
+      }
+      return result
     }
 
-    return nil
+    return wrapperFallback
   }
 
   /// Look for a top-level nominal type in a specific module by name
@@ -260,14 +271,24 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       return parsedResult
     }
 
-    // See the comment in lookupTopLevelNominalType(_:) about JavaKit wrappers.
+    // See the comment in lookupTopLevelNominalType(_:) about JavaKit wrappers:
+    // prefer a non-wrapper match, but fall back to the wrapper if it's the
+    // only candidate found anywhere.
+    var wrapperFallback: SwiftNominalTypeDeclaration?
     for importedModule in importedModules.values {
-      if let result = importedModule.lookupNestedType(name, parent: parent), !result.isJavaKitWrapper {
-        return result
+      guard let result = importedModule.lookupNestedType(name, parent: parent) else {
+        continue
       }
+      if result.isJavaKitWrapper {
+        if wrapperFallback == nil {
+          wrapperFallback = result
+        }
+        continue
+      }
+      return result
     }
 
-    return nil
+    return wrapperFallback
   }
 
   // Look for a nested typealias with the given name.
