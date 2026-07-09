@@ -41,6 +41,10 @@ public func makeSwiftJavaAnalyzer(config: Configuration) -> SwiftAnalyzer {
 /// - Skips decls marked `@available(*, unavailable, ...)` — generating a
 ///   call to one would fail to compile, since Swift forbids calling an
 ///   unconditionally unavailable declaration
+/// - Skips actor-isolated properties (stored or computed) — unlike methods,
+///   a property's accessors can't be marked `async`, so there is no way to
+///   generate a JNI thunk that legally crosses actor isolation to read or
+///   write one synchronously
 public struct JavaExtractDecider: ExtractDecider {
   public let accessLevel: AccessLevelMode
   let log: Logger
@@ -76,6 +80,21 @@ public struct JavaExtractDecider: ExtractDecider {
     if attrs?.contains(where: { $0.isUnconditionallyUnavailable }) == true {
       log.trace("Skip '\(decl.qualifiedNameForDebug)': unconditionally unavailable")
       return false
+    }
+
+    if let parent, parent.swiftNominal.kind == .actor,
+      let varDecl = decl.as(VariableDeclSyntax.self)
+    {
+      let isStaticOrNonisolated = varDecl.modifiers.contains {
+        switch $0.name.tokenKind {
+        case .keyword(.static), .keyword(.nonisolated): true
+        default: false
+        }
+      }
+      if !isStaticOrNonisolated {
+        log.trace("Skip '\(decl.qualifiedNameForDebug)': actor-isolated property can't be bridged synchronously")
+        return false
+      }
     }
 
     // Swift operators have no Java mapping
